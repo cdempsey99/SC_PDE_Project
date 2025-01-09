@@ -60,8 +60,7 @@ model = MLP(input_size, hidden_size1, hidden_size2, output_size)
 
 # Define optimizer
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
-# Learning scheduler
-#scheduler = optim.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=200, verbose=True)
+
 
 # Boundary-condition-obeying part of trial solution
 def A(x, y):
@@ -69,10 +68,6 @@ def A(x, y):
 
 # Trial solution
 def trial_solution(x, y, model_output):
-    # I tried changing model_output to (model_output + 1) in order to bias the answer a bit more positively
-    # as they are consistently too negative
-    # But this had the opposite effect, so I switched it to -1
-    # and this actually improved things somehow!
 
     # the term x*(1 - x)*y*(1 - y) has a very small maximum value on the grid so add a scaling factor
     scaling_factor = 1.0

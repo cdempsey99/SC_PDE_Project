@@ -5,9 +5,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ------------- The method of Paper 1 (modified PINN I'm gonna call it ) applied to Problem 7 from the paper ---------
+# using BGFS as well
 
+# WIP
 
-# Keep your existing MLP class and helper functions
+# Define multilayer perceptron class
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_size1, hidden_size2, output_size):
         super(MLP, self).__init__()
@@ -47,13 +49,29 @@ optimizer = optim.LBFGS(model.parameters(),
 def B(x, y):
     return 2 * y * np.sin(np.pi * x)
 
-def trial_solution(x, y, model_output):
-    scaling_factor = 1.0
-    return B(x, y) + x * (1 - x) * y  * (scaling_factor * model_output)
+
+def trial_solution(x, y, model):
+    # Combine x and y into a 2D input tensor
+    xy = torch.stack((x, y), dim=1).requires_grad_(True)  # Shape: (batch_size, 2)
+    xy_1 = torch.stack((x, torch.ones_like(y)), dim=1).requires_grad_(True)  # Shape: (batch_size, 2)
+
+    # Retain gradients for xy_1
+    xy_1.retain_grad()
+
+    # Model outputs
+    n_xy = model(xy)  # N(x, y)
+    n_x_1 = model(xy_1)  # N(x, 1)
+
+    # Compute ∂N/∂y at (x, 1)
+    n_x_1.sum().backward(retain_graph=True)  # Sum ensures proper gradient computation
+    partial_derivative_y = xy_1.grad[:, 1]  # Gradient w.r.t. y (2nd input)
+
+    # Trial solution
+    trial = x * (1 - x) * y * (n_xy - n_x_1 - partial_derivative_y)
+    return trial
 
 
-
-
+# Source term on rhs of PDE
 def f(x, y):
     return (2 - torch.pi**2 * y**2) * torch.sin(torch.pi * x)
 
@@ -68,34 +86,34 @@ def psi_exact_np(x, y):
 def closure():
     optimizer.zero_grad()
 
-    # Forward pass
-    inputs = torch.cat((x_train_tensor, y_train_tensor), dim=1)
-    model_output = model(inputs)
-    Psi_pred = trial_solution(x_train_tensor, y_train_tensor, model_output)
+    # Trial solution
+    inputs = torch.cat((x_train_tensor, y_train_tensor), dim=1)  # Combine x and y
+    Psi_pred = trial_solution(inputs[:, 0], inputs[:, 1], model)  # Pass x and y separately
 
     # Compute derivatives
-    psi_x = torch.autograd.grad(Psi_pred, x_train_tensor,
+    Psi_x = torch.autograd.grad(Psi_pred, x_train_tensor,
                                 grad_outputs=torch.ones_like(Psi_pred),
                                 create_graph=True)[0]
-    psi_xx = torch.autograd.grad(psi_x, x_train_tensor,
-                                 grad_outputs=torch.ones_like(psi_x),
+    Psi_xx = torch.autograd.grad(Psi_x, x_train_tensor,
+                                 grad_outputs=torch.ones_like(Psi_x),
                                  create_graph=True)[0]
 
-    psi_y = torch.autograd.grad(Psi_pred, y_train_tensor,
+    Psi_y = torch.autograd.grad(Psi_pred, y_train_tensor,
                                 grad_outputs=torch.ones_like(Psi_pred),
                                 create_graph=True)[0]
-    psi_yy = torch.autograd.grad(psi_y, y_train_tensor,
-                                 grad_outputs=torch.ones_like(psi_y),
+    Psi_yy = torch.autograd.grad(Psi_y, y_train_tensor,
+                                 grad_outputs=torch.ones_like(Psi_y),
                                  create_graph=True)[0]
 
-    # Compute residual
-    residual = psi_xx + psi_yy - f(x_train_tensor, y_train_tensor)
+    # Residual
+    residual = Psi_xx + Psi_yy - f(x_train_tensor, y_train_tensor)
     loss = torch.mean(residual ** 2)
 
     # Backward pass
     loss.backward()
 
     return loss
+
 
 
 # Training loop
